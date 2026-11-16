@@ -1,32 +1,32 @@
-# Java/Kotlin, DEX и R8
+# Java/Kotlin, DEX and R8
 
-DEX хранит байткод JVM-реализации, преобразованный в формат Android. Прямого преобразования Python-плагина в DEX в ElyxBuilder нет. Для переноса выдели логику подходящим интерфейсом и реализуй её на Java/Kotlin. D8 выполняет конвертацию. R8 может удалить недостижимый код, оптимизировать и обфусцировать внутренние имена. DEX можно проанализировать и декомпилировать. Для релиза без исходников отдавай только штатный установочный артефакт, сохраняя исходники и R8 mapping в хранилище проекта.
+DEX is Android bytecode. ElyxBuilder compiles Python to `.pyc`; moving logic to DEX requires implementing that logic in Java or Kotlin behind a defined interface. D8 converts JVM bytecode to DEX. R8 can shrink, optimize and obfuscate JVM implementations. DEX remains analyzable and decompilable. Keep source and per-release R8 mappings in the project.
 
-## Выбери совместимый способ доставки
+## Choose a packaging format
 
-| Как устроен проект | Что выпускать | Что проверить |
+| Project | Release artifact | Verify |
 | --- | --- | --- |
-| Python-мост с DEX | `.plugin` с видимыми метаданными и мостом, собранный проектным упаковщиком | Совместимость Chaquopy, способ передачи DEX и сигнатуры вызовов |
-| Elyx с JVM-реализацией | `.elyx` с Python-мостом и локальным `classes.dex` в assets | Совместимость загрузчика, `refmap`, разрешение DEX-ресурса и, при необходимости, `.pyc` |
-| JAR-формат Gradle-инструментария | JAR с DEX и манифестом согласно контракту проекта | Поддержку JAR-установки целевой версией, `Plugin-Id`, `Plugin-Class`, версию, зависимости и подпись при наличии |
+| Python bridge with embedded DEX | `.plugin` built by the project's packager, with literal metadata and a Python bridge | Chaquopy compatibility, DEX delivery, and bridge signatures |
+| Elyx with a JVM implementation | `.elyx` with a Python bridge and local `classes.dex` asset | Loader behavior, `refmap`, asset lookup, and `.pyc` when used |
+| Gradle JAR plugin | JAR with DEX and the project's manifest | Target client support for JAR installation, `Plugin-Id`, `Plugin-Class`, version, dependencies, and signature if used |
 
-Первые два варианта используют Python-точку входа. Варианты DEX зависят от загрузчика проекта и клиента. На сайте Python SDK нет универсального установочного контракта для отдельного файла `.dex` или JAR. Для JAR сверяй реализацию целевого клиента и испытывай установку. Для Python-моста ориентируйся на исходники используемого шаблона.
+The first two formats use a Python entry point. The Python SDK docs leave standalone DEX and JAR installation contracts to the target loader. Verify the actual client for JAR loading and consult the bridge template used by the project.
 
-## Сборка и мост
+## Build and load
 
-1. Определи Gradle wrapper, JDK, Android SDK/Build Tools и `minSdk` фактического проекта. Выбери совместимый API хоста для компиляции. Классы Telegram, exteraGram и платформы, предоставляемые хостом, держи в classpath/`compileOnly`. В DEX включай собственные классы и обязательные runtime-зависимости. Relocation применяй к частным библиотекам при коллизиях; типы хоста на границе моста сохраняй.
-2. Используй существующую сборку. Для `io.github.exterastuff.plugin` проверь задачи через `./gradlew tasks --all` или `.\gradlew.bat tasks --all`. При поддержке Gradle-модулем `buildDexRelease` собирает `classes.dex`. `packagePluginJarRelease` появляется при конфигурации `bundle`, а `signPluginJarRelease` — при наличии настроек подписи. В проекте на основе `pydex-plugin-template` рецепт `just dex` собирает debug DEX, `just ci-release 1.2.3` даёт `dist/<id>.plugin`. Сверяй команды и версии по checkout проекта.
-3. Для минимального Java-проекта без Gradle можно скомпилировать `.class` в jar и затем вызвать D8. Подставь реальный номер API и путь к SDK. Дополнительные compile-time зависимости перечисляй как `--classpath`, а те, которые должны ехать с плагином, передавай на вход как program files.
+1. Check the Gradle wrapper, JDK, Android SDK/Build Tools and target `minSdk`. Compile against the actual host API. Keep host-supplied Telegram, exteraGram and platform classes on the classpath or in `compileOnly`. Package your classes and required runtime dependencies. Relocate private libraries only as needed for collisions and preserve host types at the bridge boundary.
+2. Reuse the project's build. For `io.github.exterastuff.plugin`, inspect `./gradlew tasks --all` or `.\gradlew.bat tasks --all`. Where configured, `buildDexRelease` creates `classes.dex`, `packagePluginJarRelease` requires `bundle`, and `signPluginJarRelease` requires signing configuration. In the pydex template, `just dex` builds debug DEX and `just ci-release 1.2.3` builds `dist/<id>.plugin`. Confirm commands in the checkout.
+3. For a minimal Java project, package compiled classes in a JAR and invoke D8 with the correct Android API and SDK path. Supply compile-time dependencies as `--classpath` and packaged dependencies as program inputs.
    ```text
    d8 --release --min-api <API> --lib <android.jar> --output <existing-output-dir> <plugin-classes.jar>
    ```
-   Проверь ожидаемое число dex-файлов. Упаковщик или мост для одного `classes.dex` не подхватит `classes2.dex` автоматически.
-4. Если нужен Python-мост, используй встроенный в релиз локальный DEX или ресурс Elyx. В Elyx бери `assets["classes.dex"].content_bytes()`. Для `InMemoryDexClassLoader` с одним `ByteBuffer` нужен Android API 26+. Parent class loader должен видеть классы хоста, например loader контекста приложения в проверенном шаблоне exteraStuff. Загружай класс по полному имени, вызывай реально объявленные методы с точными Java-типами. `BasePlugin` управляет запуском и очисткой моста. Явно отменяй зарегистрированные из JVM слушатели и хуки, завершай задачи и разрывай ссылки при выгрузке. Для релиза без `.py` в Elyx храни DEX отдельным ассетом: шаблон, который читает Base64 из комментариев собственного файла, зависит от исходника.
-5. Для подписи используй механизм поддерживаемого формата и храни keystore/пароли вне релиза. Публикуй контрольную сумму финального файла. Используй штатный путь установки и покажи, какие компоненты исполняются.
+   Verify the number of DEX files. A loader that expects one `classes.dex` needs explicit support for additional files.
+4. Use a release-bundled DEX or an Elyx asset. Read an Elyx asset with `assets["classes.dex"].content_bytes()`. The single-`ByteBuffer` `InMemoryDexClassLoader` constructor requires Android API 26+. Its parent must resolve host classes, as the application context class loader does in the exteraStuff template. Load by fully qualified class name and match exact Java argument types. Manage bridge start and cleanup from `BasePlugin`. On unload, unregister JVM hooks and listeners, stop work and release references. For an Elyx release without `.py`, use a separate DEX asset because bridges that read their own source comments require that source file.
+5. Sign through the supported packaging workflow if needed. Keep keystore material and passwords outside the release. Publish the final artifact checksum and describe its executable components. Use normal host installation.
 
-## Правила для R8
+## R8 keep rules
 
-Оставь узкие keep rules для класса и методов, на которые ссылается Python, манифест или рефлексия. Например, если Java-мост вызывает именно эти статические методы:
+Keep the exact classes and members reached through a manifest, Python bridge or reflection. For example, when the bridge calls these two static methods:
 
 ```proguard
 -keep class com.example.compact.EntryPoint {
@@ -35,14 +35,13 @@ DEX хранит байткод JVM-реализации, преобразова
 }
 ```
 
-Добавляй конструктор, callback и сигнатурные типы по необходимости. В Kotlin проверяй сгенерированную сигнатуру: при вызове статического метода объекта может понадобиться `@JvmStatic`. Загружаемые по строковым именам классы проверь после R8. Храни mapping каждой версии для восстановления трассировок. Убери из релиза исходные `.java/.kt`, отладочные JAR и случайные копии SDK/классов приложения.
+Add constructors, callbacks and signature types as required. For Kotlin, inspect the generated JVM signature and use `@JvmStatic` when the bridge needs a static object method. Check string-resolved names after R8. Save the mapping for retracing. Exclude Java/Kotlin source, debug JARs and accidental copies of host classes from release packages.
 
-## Диагностика релиза
+## Diagnose release builds
 
-- `ClassNotFoundException` — проверь имя entrypoint, R8 mapping, наличие класса в DEX, parent loader и переданный артефакт.
-- `NoSuchMethodException` — проверь рефлексивные типы, `static` или экземпляр, видимость, keep rules и Kotlin/JVM-имя.
-- `NoClassDefFoundError`/ошибка линковки — проверь dependency classpath, несовпадение версии класса хоста, relocation и реальный `minSdk`.
-- Сравни debug и release на одном устройстве. Проверь размер, наличие ожидаемого DEX/manifest, загрузку, вызов основной функции и disable → enable → reload. При подписи проверь JAR через `jarsigner -verify` и сверяй ожидаемого издателя. Для Bridge-артефакта проверь доступность метаданных со штатного экрана установки.
+- `ClassNotFoundException`: check entry name, mapping, DEX contents, parent loader and the artifact actually passed.
+- `NoSuchMethodException`: check reflection argument types, static vs. instance access, visibility, keep rules and JVM names.
+- `NoClassDefFoundError` or linkage failure: check runtime dependencies, host class versions, relocation and Android API level.
+- Compare debug and release on the same device. Inspect size, DEX and manifest, then test install, main behavior, disable, re-enable and reload. For a signed JAR, run `jarsigner -verify` and check the expected signer. In bridge builds, verify metadata in the standard install sheet.
 
-[Gradle-проект exteraStuff](https://github.com/exteraStuff/gradle-plugin) · [Шаблон Python + DEX](https://github.com/exteraStuff/pydex-plugin-template) · [D8](https://developer.android.com/tools/d8) · [R8 keep rules](https://developer.android.com/topic/performance/app-optimization/keep-rules-overview) · [InMemoryDexClassLoader](https://developer.android.com/reference/dalvik/system/InMemoryDexClassLoader) · [Android Dynamic Code Loading](https://developer.android.com/privacy-and-security/risks/dynamic-code-loading)
-
+[exteraStuff Gradle project](https://github.com/exteraStuff/gradle-plugin) · [Python and DEX template](https://github.com/exteraStuff/pydex-plugin-template) · [D8](https://developer.android.com/tools/d8) · [R8 keep rules](https://developer.android.com/topic/performance/app-optimization/keep-rules-overview) · [InMemoryDexClassLoader](https://developer.android.com/reference/dalvik/system/InMemoryDexClassLoader) · [Android Dynamic Code Loading](https://developer.android.com/privacy-and-security/risks/dynamic-code-loading)

@@ -1,21 +1,16 @@
-# Выпуск Elyx без исходных .py
+# Ship an Elyx package without .py source
 
-Elyx поддерживает модули `.pyc`, в том числе пакеты с `__init__.pyc`. Однофайловый `.plugin` использует текст Python для чтения метаданных. Для выпуска Python-реализации только в байткоде перенеси метаданные в Elyx и оставь редактируемый проект отдельным от результатов сборки. Байткод может раскрывать имена, константы, строки и алгоритмы. Токены, ключи API и приватные ключи не должны попадать в любой артефакт.
+Elyx loads `.pyc` modules and packages with `__init__.pyc`. Single-file `.plugin` metadata is read from Python source. To ship Python logic as bytecode, move metadata into an Elyx file and build separately from the editable source tree. Bytecode exposes names, strings, constants and algorithms to analysis. Keep all credentials and signing keys out of artifacts.
 
 ## ElyxBuilder
 
-1. Установи зафиксированную совместимую версию ElyxBuilder в среду **CPython 3.11**. На Windows, если доступен Python Launcher: `py -3.11 -m venv .venv`, затем `.\.venv\Scripts\python.exe -m pip install ElyxBuilder`. Для повторяемой сборки зафиксируй версию в проекте. Проверь `sys.version`, `elyb --version` и `elyb build --help`. На Windows можно вызывать `.\.venv\Scripts\elyb.exe` напрямую.
-2. Запусти из корня с `refmap.yml`:
-   ```text
-   elyb build --ast -v -nf
-   elyb build --compile 0 -v -nf
-   ```
-   Первая команда проверяет исходную сборку. Вторая выпускает байткод в `builds/`. ElyxBuilder принимает `--ast` и `--compile` в отдельных запусках. Уровень 0 сохраняет обычную семантику. Уровень 1 удаляет `assert` и меняет `__debug__`. Уровень 2 дополнительно удаляет docstrings. Используй уровни 1/2 только после проверки, что от этих элементов не зависит плагин и его библиотеки.
-3. При подозрении на устаревший результат добавь `--reset` к компилируемой сборке. Проверь `compilationIgnore`, который оставляет совпавшие Python-файлы в исходном виде, и `ignoreAll`, который полностью исключает совпавшие пути. Флаг `-nf` исключает каталог настройки сборщика. Просмотри весь ZIP на остаточные исходники, включая вложенные wheels, архивы и ресурсы, если релиз должен полностью исключать исходный код.
+1. Use a pinned compatible version in a **CPython 3.11** environment. On Windows with the launcher, run `py -3.11 -m venv .venv` and `.\.venv\Scripts\python.exe -m pip install ElyxBuilder`. Confirm the actual Python version, `elyb --version` and `elyb build --help`. You can call `.\.venv\Scripts\elyb.exe` directly.
+2. From the directory containing `refmap.yml`, check the source build with `elyb build --ast -v -nf`. Separately build bytecode with `elyb build --compile 0 -v -nf`. Output goes to `builds/`. The flags `--ast` and `--compile` are mutually exclusive. Optimization level 0 preserves normal semantics. Level 1 removes assertions and changes `__debug__`. Level 2 also strips docstrings. Check dependencies on these features before using levels 1 or 2.
+3. If output appears stale, add `--reset` to the compiled build. Check `compilationIgnore` for Python files left as source and `ignoreAll` for paths excluded entirely. `-nf` omits the builder configuration directory. Inspect nested wheels, archives and resources when the release is meant to contain no source.
 
-## Ручной вариант
+## Manual build
 
-Скопируй только необходимые файлы в staging-каталог. Скомпилируй каждый отгружаемый модуль силами CPython 3.11 по схеме ниже. Удали его исходник только из staging после успешной компиляции. Для пакетов с `__init__.py` примени ту же операцию. Не полагайся на `__pycache__` при релизе без исходников. Обнови `refmap.main` на фактическое имя, например `main.pyc`. Явно укажи доступный отдельный метафайл.
+Copy required files to staging and compile every shipped module with CPython 3.11. Remove each corresponding source only from staging after compilation succeeds. Compile package initializers as `__init__.pyc`. Put bytecode beside its logical module path outside `__pycache__`. Update `refmap.main` to the actual entry, such as `main.pyc`, and explicitly point to the separate metadata file.
 
 ```python
 import py_compile
@@ -30,14 +25,13 @@ py_compile.compile(
 )
 ```
 
-Для вложенных модулей в `dfile` используй логический путь относительно корня архива. Это помогает сопоставить трассировки с исходниками и исключает попадание путей разработчика в байткод. Упакуй содержимое staging в ZIP с корневым `refmap.*`, затем выпусти файл `.elyx` или `.eaf`.
+Use archive-relative paths as `dfile` for tracebacks and to keep developer paths out of code objects. Zip the staging contents with `refmap.*` at the archive root and name the result `.elyx` or `.eaf`.
 
-## Приёмка
+## Release checks
 
-- Выполни `python -m zipfile -t <archive>` и `python -m zipfile -l <archive>`. Проверь единственный корневой `refmap`, указанные им пути, метаданные, локализации, ресурсы и отсутствие исходников в заявленной области. В релиз без исходников включай только необходимые build-результаты и ресурсы.
-- Запусти проверку тем же CPython 3.11, который использован для сборки. Сравни первые 4 байта каждого `.pyc` с `importlib.util.MAGIC_NUMBER` и проверь, что заголовок содержит не менее 16 байт. Для статической проверки не импортируй файлы из непроверенного пакета. Проверка magic и CRC не заменяет фактическую загрузку.
-- Установи именно собранный архив на целевой exteraGram. Проверь чтение метаданных, импорт всех модулей, загрузку ресурсов, настройки, повторное включение и обновление предыдущей версии. Для ошибок импорта сравни регистр путей, имя пакета, `__init__.pyc`, версию Python и фактический `refmap.main`.
-- Зафиксируй версии клиента, SDK, Python, ElyxBuilder и SHA-256 релиза. Храни исходный коммит и конфигурацию сборки для диагностики.
+- Run `python -m zipfile -t <archive>` and `python -m zipfile -l <archive>`. Verify the root refmap, mapped paths, metadata, locales, assets and the absence of source in the intended scope.
+- Use the build's CPython 3.11 to check that each `.pyc` has at least a 16-byte header and begins with `importlib.util.MAGIC_NUMBER`. Static checks need no imports from the package. Header and CRC checks only verify file properties.
+- Install the final artifact on the target app. Test metadata, all module imports, resources, settings, re-enable and upgrade. If imports fail, check case, package paths, `__init__.pyc`, runtime version and `refmap.main`.
+- Record the app, SDK, Python, builder and release SHA-256. Keep the source commit and build configuration for diagnosis.
 
 [ElyxBuilder](https://plugins.exteragram.app/docs/elyx/elyxbuilder) · [Development and Build](https://plugins.exteragram.app/docs/elyx/development) · [Modules and Imports](https://plugins.exteragram.app/docs/elyx/modules-and-imports) · [CPython py_compile](https://docs.python.org/3.11/library/py_compile.html)
-

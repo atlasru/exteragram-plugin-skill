@@ -1,8 +1,8 @@
-# Структурированные плагины Elyx
+# Structured plugins with Elyx
 
-Используй Elyx для нескольких модулей, ресурсов, локализаций, локальных wheels и релизов с Python-байткодом. `.elyx` и `.eaf` — ZIP-контейнеры. В корне архива лежит один `refmap.yaml`, `refmap.yml` или `refmap.json`. Все указанные пути относительны к корню архива. Устрани лишний внешний каталог, разницу регистра и неоднозначные дубли.
+Use Elyx for multiple modules, assets, localization, bundled wheels or Python bytecode releases. A `.elyx` or `.eaf` is a ZIP with one root `refmap.yaml`, `refmap.yml` or `refmap.json`. Paths are relative to the archive root. Preserve exact case and avoid duplicate paths or a wrapper directory.
 
-## Минимальная структура
+## Layout
 
 ```text
 refmap.yml
@@ -35,22 +35,21 @@ app_version: ">=12.5.1"
 sdk_version: ">=1.4.5.3"
 ```
 
-Оставь один наследник `BasePlugin` в `main.py` и используй `from features.render import ...`. При изменении существующей структуры сохраняй расположение файлов, указанное в `refmap`. Если переносишь обычный плагин, сохрани ID, когда он допустим для Elyx. Elyx-ID допускает 2–32 ASCII-буквы, цифры и подчёркивания. При несовместимом старом ID согласуй способ переноса настроек и проверь обновление на устройстве. Метаданные перенеси в отдельный файл и проверь сохранённые ключи настроек и состояние включения.
+Keep one concrete `BasePlugin` subclass in the entry module. Import helpers with paths such as `from features.render import ...`. Preserve the layout referenced by existing `refmap` entries. On migration from a single-file plugin, preserve its ID if valid. Elyx IDs use 2–32 ASCII letters, digits and underscores. If the existing ID is incompatible, agree on settings migration and test the upgrade on device. Move metadata to its own file and verify settings keys and enabled state.
 
-Добавляй ключи `strings`, `assets` и `wheels` при наличии этих каталогов. Сохраняй поля совместимости строками. Для другого плагина используй `requires` вида `"shared_plugin (2.1.0)": "https://…"`; зависимый плагин должен быть установлен и включён.
+Set `strings`, `assets` and `wheels` when those directories exist. Keep version constraints as strings. Express plugin dependencies in `requires`, for example `"shared_plugin (2.1.0)": "https://…"`. The required plugin must be installed and enabled.
 
-## Импорт и ресурсы
+## Imports and resources
 
-- Используй публичный фасад `elyx`, например `from elyx import strings, settings`. Для динамического импорта локального Python-модуля используй `elyx.import_module(name)`. Обычный `importlib.import_module` может потерять контекст плагина. Для соседей внутри пакета доступны относительные импорты. Избегай имён из stdlib и зарезервированных корней SDK (`elyx`, `android`, `java`, `org`, `ui`, `base_plugin`).
-- Ресурс бери по точному имени через `assets["help.txt"]` или нормализованному stem при отсутствии коллизий. Для необязательного корня проверяй `get_environment().get("assets")`. Используй явный метод чтения, например `content_string()` или `content_bytes()`.
-- Храни ключи локализации в `strings_<locale>.*`. Проверяй наличие ключей и совпадение имён подстановок между языками. Поиск идёт от выбранного языка к английскому, затем возвращает ключ. Вызывай строки с именованными аргументами, например `strings("greeting", name=name)`. Метаданные тоже поддерживают локализуемые подстановки.
-- `elyx.settings` связан с текущим ID и теми же ключами, которые используют строки настроек. `settings.get(key, default)` читает, `settings.set(key, value)` пишет. Для изменения структуры открытой страницы передай `reload_settings=True`.
-- Для внешних пакетов используй `requirements` с совместимыми PEP 508-ограничениями. Для локальных чистых wheels укажи `wheels` и положи файлы прямо в этот каталог. Elyx использует stem файла как идентификатор извлечённой версии. При обновлении содержимого меняй версию wheel и его имя. Для небольшого helper-модуля удобен локальный Python-пакет.
-- Перезагрузка очищает модули пространства Elyx, но собственные потоки и Java-слушатели нужно завершить в `on_plugin_unload`. Код обновления настроек должен выдерживать повторный запуск.
+- Use the public `elyx` facade. For dynamic local imports use `elyx.import_module(name)` to keep plugin scope. Relative imports work within packages. Avoid standard-library names and reserved SDK roots such as `elyx`, `android`, `java`, `org`, `ui`, and `base_plugin`.
+- Access assets by exact name with `assets["help.txt"]`, or by normalized stem when unique. For optional assets use `get_environment().get("assets")`. Choose an explicit read method such as `content_string()` or `content_bytes()`.
+- Put translations in `strings_<locale>.*`. Keep placeholder names consistent across languages. Lookup falls back from the selected locale to English and then to the key itself. Use named parameters, such as `strings("greeting", name=name)`. Metadata supports localized placeholders.
+- `elyx.settings` uses the current plugin ID and the same keys as settings rows. Read with `settings.get(key, default)` and write with `settings.set(key, value)`. Pass `reload_settings=True` when the open page's structure changes.
+- Declare PEP 508 requirements in `requirements`. Put bundled pure-Python wheels directly in `wheels`. Change the wheel version and filename when changing its contents because Elyx tracks extracted wheels by filename stem. Small helpers can be local Python packages.
+- Reload clears Elyx modules. Stop custom threads and listeners on unload and make settings migration safe to rerun.
 
-## Быстрый цикл
+## Build and iterate
 
-Для нового проекта используй `elyb new` из пустой папки либо создай структуру вручную. Для сборки из исходников запусти `elyb build --ast -v -nf` в корне проекта. При ручной упаковке добавляй в ZIP содержимое проекта и укажи расширение `.elyx`. Осмотри архив перед установкой. Для разработки загрузи и включи начальную сборку, затем синхронизируй правки через DevServer по [сценарию отладки](testing-release.md). Для релиза с байткодом смотри [сборку .pyc](pyc.md).
+Run `elyb new` in an empty directory to scaffold, or create the layout manually. Run `elyb build --ast -v -nf` in the project root for a source build. For manual packaging, zip the project contents and use the `.elyx` extension. Install and enable an initial build before using the [development server](testing-release.md). See [Python bytecode](pyc.md) for compiled releases.
 
 [Quick Start](https://plugins.exteragram.app/docs/elyx/quick-start) · [Project Structure](https://plugins.exteragram.app/docs/elyx/project-structure) · [Metadata](https://plugins.exteragram.app/docs/elyx/metadata) · [Modules and Imports](https://plugins.exteragram.app/docs/elyx/modules-and-imports) · [Public API](https://plugins.exteragram.app/docs/elyx/public-api)
-

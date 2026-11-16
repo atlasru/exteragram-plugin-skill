@@ -1,33 +1,32 @@
-# Отладка, проверка и распространение
+# Debug, test and distribute
 
-## Разработка на устройстве
+## Device development
 
-1. На тестовой сборке включи движок плагинов и developer mode. Проверь подключение командой `adb devices`. При нескольких устройствах укажи `adb -s <serial>`. Для штатного DevServer пробрось `adb forward tcp:42690 tcp:42690`. Используй loopback. После разработки отключи сервер и убери созданный проброс при необходимости.
-2. Для обычного плагина открывай `.plugin` в exteraGram или используй уже настроенный клиент DevServer. Протокол передаёт последовательные UTF-8 JSON-объекты. `@` задаёт команду, `#` — уникальный идентификатор для сопоставления ответа. `write_plugin` получает `plugin_id` и полный Python-текст в `content`, `reload_plugin` перезагружает однофайловый плагин.
-3. Для Elyx сначала установи архив и включи плагин. Убедись, что ID совпадает с локальными метаданными. Используй существующий `elyx_dev_client.py` или другой совместимый клиент и проверь его `--help`. Действия: `elyx_ping`, `get_elyx_plugins`, `elyx_compare_folder`, `elyx_changes`. Поле `data` — JSON, сжатый zlib и закодированный base64. Пути изменений относительны к корню проекта. Дождись ответа с нужным `#`, проверь `success` и `errors`.
-4. Для диагностики собирай `adb logcat` по тегу `plugin.<id>`, при исключениях используй `self.logger.exception`. Например, `adb logcat -s 'plugin.compact_preview:D' '*:S'`. Для отладчика отдельно настрой IDE и порт (например, 5678), направление проброса соответствует тому, кто инициирует соединение. Сервер DevServer по умолчанию использует 42690. Убирай сообщения, токены и личные данные из диагностического вывода.
+1. Enable the plugin engine and developer mode in a test build. Run `adb devices` and use `adb -s <serial>` for multiple devices. Forward the local DevServer with `adb forward tcp:42690 tcp:42690`. Use loopback, and disable the server and remove your forwarding rule when finished as appropriate.
+2. Open a single-file `.plugin` in exteraGram or use an existing DevServer client. The connection carries consecutive UTF-8 JSON objects. `@` names the action and `#` is a unique request ID echoed in its response. `write_plugin` takes `plugin_id` and complete Python source as `content`. `reload_plugin` reloads a single-file plugin.
+3. Install and enable an Elyx archive once and verify its ID against local metadata. Use the project's `elyx_dev_client.py` or compatible client and check `--help`. Actions include `elyx_ping`, `get_elyx_plugins`, `elyx_compare_folder` and `elyx_changes`. Send zlib-compressed JSON encoded in base64 as `data`, with paths relative to the project root. Match the response `#` and check `success` and `errors`.
+4. Capture logcat with the `plugin.<id>` tag, for example `adb logcat -s 'plugin.compact_preview:D' '*:S'`. Use `self.logger.exception` for exceptions and omit message content, tokens and personal data. Configure the IDE debugger separately, for example on port 5678, and choose ADB forwarding direction based on which side connects. The DevServer port defaults to 42690.
 
-## Проверка изменений
+## Regression checks
 
-| Сценарий | Что наблюдать |
+| Scenario | Expected observation |
 | --- | --- |
-| Локальная проверка | Компиляция Python 3.11, корректные литералы метаданных, структура архива, реальные сигнатуры Java и минимумы SDK |
-| Чистая установка | Клиент видит ID, имя и версию, функциональность доступна с настройками по умолчанию |
-| Обновление | ID совпадает, настройки старой версии читаются, миграция повторяема, новый релиз предлагается каталогом |
-| Два цикла disable/enable и перезагрузка | Отсутствуют дублирующиеся меню, хуки, потоки, наблюдатели и колбэки от предыдущего запуска |
-| Два аккаунта, если используются действия с Telegram | Фоновое событие обрабатывается в его аккаунте даже после переключения экрана |
-| Обработка отказа | Нет зависаний при пустом контексте, отсутствии зависимости, несовпадении сигнатуры или сети |
-| Упакованный релиз | Ставится и запускается именно файл для выдачи, включая `.pyc` или DEX, если они входят в релиз |
+| Static checks | Python 3.11 syntax, literal metadata, archive layout, target Java signatures and SDK minimum |
+| Clean install | Correct ID, name and version, and expected behavior with default settings |
+| Upgrade | Same ID, old settings still work, migrations can rerun, and the catalog offers the release when relevant |
+| Two disable/enable cycles and reload | No duplicate menus, hooks, threads, observers or stale callbacks |
+| Multiple accounts for Telegram actions | Background work uses the triggering account across UI account switches |
+| Failure paths | Missing context, network, dependencies or signatures do not hang the host |
+| Release artifact | The actual `.plugin` or Elyx archive installs and runs, including any `.pyc` or DEX |
 
-Для отсутствующего устройства пометь runtime-проверки как невыполненные и оставь точные шаги воспроизведения. Отсутствие ошибок AST подтверждает синтаксис Python, а загрузку и Java-привязку проверяет целевой клиент.
+Report device tests as unrun when no target is available and provide exact reproduction steps. AST checks validate syntax. Test loading and Java binding in the target client.
 
-## Каталог плагинов
+## Plugin catalog
 
-- Публичный Telegram-канал использует документы с поддерживаемыми расширениями. Каталог читает до 2000 последних документов. Ограничения канала из документации — до 2 МБ для `.plugin`, до 10 МБ для архивов. Для обновления опубликуй новый документ или замени файл в существующем сообщении. Каталог группирует версии по ID.
-- Для Git собери UTF-8 `extera-plugins.json` со `schema: 1` размером до 1 МиБ. В корне нужны `name` и массив `plugins`. Одна актуальная запись на ID. Поля записи — `id`, `name`, `version`, `file`, `sha256`, `size`. `file` — относительный путь от URL индекса либо абсолютный HTTPS URL. `size` в байтах, `sha256` в нижнем регистре, `id`/версия совпадают с пакетом. Задай подходящую категорию и пересоздавай индекс после каждой замены артефакта.
-- Для обновления увеличивай числовую часть версии. Например, `1.9.1` → `1.10.0`. Суффиксы вроде `-beta` при сравнении каталога игнорируются. Проверяй запрос с URL каталога, конечную загрузку, размеры и хэши. Если индекс закэширован, используй штатное обновление каталога. При установке из Git клиент применяет настройки неизвестных источников и показывает результат анализа безопасности.
-- Для JAR путь распространения определяет поддерживаемый загрузчик. Тестируй его отдельно от каталога `.plugin`/Elyx.
-- Подготовка архива и индекса локальна. Публикуй или отправляй пакет только по запросу пользователя.
+- For public Telegram channels, publish supported plugin files as documents. The catalog checks up to 2,000 recent documents, up to 2 MB per `.plugin` and 10 MB per archive. Publish a new document or replace the prior file to update. The catalog groups releases by ID.
+- For Git, generate UTF-8 `extera-plugins.json` with `schema: 1` and at most 1 MiB. The root needs `name` and `plugins`. Keep one current entry per ID with `id`, `name`, `version`, `file`, `sha256` and `size`. Use paths relative to the index URL or absolute HTTPS URLs. Size is in bytes and the hash is lowercase hex. ID and version must match the artifact. Set a suitable category and regenerate the index whenever a file changes.
+- Increase the numeric release version, for example from `1.9.1` to `1.10.0`. The catalog ignores suffixes like `-beta` for ordering. Verify index and download URLs, sizes and hashes. Use built-in catalog refresh when cached. Git installations use the host's unknown-source settings and installation analysis.
+- For JAR, follow the target loader's distribution path and test independently of the Python/Elyx catalog.
+- Prepare artifacts and indexes locally. Publish them only when requested.
 
 [Setup](https://plugins.exteragram.app/docs/setup) · [Development Server](https://plugins.exteragram.app/docs/dev-server) · [Elyx Development](https://plugins.exteragram.app/docs/elyx/development) · [Logging](https://plugins.exteragram.app/docs/logging) · [Plugin Repositories](https://plugins.exteragram.app/docs/plugin-repositories)
-

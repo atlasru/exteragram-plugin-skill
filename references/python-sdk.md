@@ -1,12 +1,10 @@
-# Разработка и изменение Python-плагинов
+# Develop and edit Python plugins
 
-## Входной файл
+## Entry point
 
-Для разработки используй `<id>.py`. Однофайловый релиз `<id>.plugin` содержит тот же Python-текст. Загрузчик читает метаданные через AST, поэтому поля задаются литералами на верхнем уровне. Обязательны `__id__` и `__name__`. Для ID подходит шаблон `[A-Za-z][A-Za-z0-9_-]{1,31}`. Оставляй ровно один реализуемый класс плагина в точке входа.
+Develop in `<id>.py` and ship the same Python text as `<id>.plugin`. The loader reads metadata via AST. Use top-level literals and one concrete `BasePlugin` subclass. Required fields are `__id__` and `__name__`. IDs match `[A-Za-z][A-Za-z0-9_-]{1,31}`.
 
-Дополнительные поля: `__description__`, `__author__`, `__version__`, `__icon__`, `__app_version__`, `__sdk_version__`, `__requirements__`, `__category__`. Совместимость задаётся выражением вроде `">=12.5.1"`. Старое `__min_version__` соответствует нижней границе версии приложения. Иконка имеет вид `exteraPlugins/1`. Для каталога укажи от одной до трёх подходящих категорий: `appearance`, `chats`, `media`, `privacy`, `tools`, `integrations`, `fun`, `libraries`.
-
-Минимальная точка входа с безопасной локальной проверкой через настройки и logcat.
+Optional fields include `__description__`, `__author__`, `__version__`, `__icon__`, `__app_version__`, `__sdk_version__`, `__requirements__` and `__category__`. Version constraints are strings such as `">=12.5.1"`. Legacy `__min_version__` specifies a minimum app version. Icons use a sticker-pack name and index, such as `exteraPlugins/1`. Catalog categories accept one to three values from `appearance`, `chats`, `media`, `privacy`, `tools`, `integrations`, `fun`, and `libraries`.
 
 ```python
 from base_plugin import BasePlugin
@@ -30,26 +28,25 @@ class CompactPreviewPlugin(BasePlugin):
         ]
 ```
 
-## Жизненный цикл и интерфейс
+## Lifecycle and UI
 
-- `on_plugin_load` срабатывает при включении и восстановлении активного плагина. Регистрацию, запуск фоновых задач и создание слушателей выполняй в жизненном цикле. `on_app_event` получает `AppEvent.START/STOP/PAUSE/RESUME`. `on_plugin_unload` должен переносить частично завершённую инициализацию и отменять собственные задачи, слушатели, наблюдателей и таймеры.
-- `create_settings()` возвращает строки `ui.settings`: `Header`, `Divider`, `Switch`, `Selector`, `Input`, `Text`, `EditText`, `Custom`. `Selector` хранит индекс, поэтому сохраняй порядок вариантов или мигрируй сохранённое значение. Используй `get_setting` и `set_setting`. Включай `reload_settings=True`, когда меняется состав страниц. `SimpleSettingFactory` переиспользуй между вызовами `create_settings`; временную фабрику освободи через `release()` после закрытия использующих её экранов. Подписки и колбэки проверяй по сигнатуре конкретного контрола.
-- Собирай меню через `MenuItemData` и `MenuItemType`. Проверь контекст конкретного меню в SDK и обрабатывай отсутствие необязательных значений. SDK сам убирает зарегистрированные через него меню и Java-хуки при выгрузке. Самостоятельные регистрации чисти вручную.
-- UI меняй через `android_utils.run_on_ui_thread`, тяжёлую работу передавай в `client_utils.run_on_queue`. При возврате из фона проверь, что плагин ещё включён и нужный экран актуален. Для диалогов и уведомлений используй `ui.alert` / `ui.bulletin` по сигнатурам целевого SDK.
+- Register hooks, listeners, and background work in `on_plugin_load`. `on_app_event` receives `AppEvent.START/STOP/PAUSE/RESUME`. Make `on_plugin_unload` safe after partial initialization. Cancel owned tasks, listeners, observers and timers.
+- Return `ui.settings` rows from `create_settings()`: `Header`, `Divider`, `Switch`, `Selector`, `Input`, `Text`, `EditText`, or `Custom`. A `Selector` persists an index, so preserve option order or migrate the saved value. Use `get_setting` and `set_setting`. Use `reload_settings=True` when page structure changes. Reuse a `SimpleSettingFactory` across page builds and `release()` a temporary one after its screens close. Check each control's callback signature.
+- Use `MenuItemData` and `MenuItemType`. Verify the menu context and handle absent optional values. The SDK removes menus and Java hooks registered through its API on unload. Clean up direct registrations yourself.
+- Use `android_utils.run_on_ui_thread` for UI and `client_utils.run_on_queue` for expensive work. Before applying a background result, check that the plugin is still active and the screen is current. Use `ui.alert` and `ui.bulletin` helpers with the target SDK signatures.
 
-## Хуки и аккаунты
+## Hooks and accounts
 
-- Для исходящих сообщений зарегистрируй `self.add_on_send_message_hook()`, затем реализуй `on_send_message_hook(self, account, params)`. Для TL-запросов, ответов и обновлений зарегистрируй нужные имена через `self.add_hook(...)` и реализуй соответствующий callback.
-- Вне целевой ветки верни `HookResult()`. Для изменения верни `HookResult(strategy=HookStrategy.MODIFY, params=params)` для исходящего сообщения. Для остальных типов передавай соответствующее поле `request`, `response`, `update` или `updates`. `CANCEL` прекращает операцию. `MODIFY_FINAL` прекращает дальнейшую обработку события другими плагинами и подходит только при необходимости такого поведения.
-- При чтении данных, отправке сообщения или выполнении запроса из хука передай его `account` явно либо возьми `self.client(account)`. Аккаунт на экране может отличаться от аккаунта фонового события. У `NotificationCenterDelegate` свой параметр `account`, передай его явно. Эти хелперы привязки к аккаунту требуют SDK ≥ 1.4.5.0.
-- `send_request` получает TLObject и callback с `response` и `error`. Проверяй обе ветки. В логах оставляй коды ошибок и обезличенные диагностические данные. Для UI, открытого пользователем, выбор текущего аккаунта допустим, когда это часть поведения функции.
+- Register outgoing message handling with `self.add_on_send_message_hook()` and implement `on_send_message_hook(self, account, params)`. Use `self.add_hook(...)` with the relevant TL names for requests, responses and updates, and implement the matching callbacks.
+- Return `HookResult()` outside the target case. Use `HookResult(strategy=HookStrategy.MODIFY, params=params)` for modified outgoing messages. Other hooks use `request`, `response`, `update` or `updates`. `CANCEL` stops the operation. `MODIFY_FINAL` stops further plugin processing for that event, so reserve it for cases that require exclusivity.
+- For actions triggered by a hook, use `self.client(account)` or pass the event's `account` explicitly. Background events can belong to an account other than the one displayed. Pass the `NotificationCenterDelegate` account explicitly too. Account-bound helpers require SDK 1.4.5.0+. The selected account is appropriate for a UI action explicitly scoped to it.
+- `send_request` takes a TLObject and a callback with `response` and `error`. Handle both outcomes and log error codes or sanitized diagnostics.
 
-## Java, файлы и интеграции
+## Java, data and dependencies
 
-- Если публичного метода SDK недостаточно, найди точное имя Java-класса и перегрузку в целевой сборке. Для отражения используй `hook_utils` и Java reflection. Проверь примитивы и boxed-типы. `MethodHook` даёт обработчики до и после вызова, `MethodReplacement` заменяет исходный метод. Для раннего ручного снятия используй `self.unhook_method(handle)`. При отсутствии класса или сигнатуры пропусти только зависимую функцию и запиши причину.
-- Для Java-подклассов используй DSL из `extera_utils.classes`: `Base`, `java_subclass`, `joverride` и другие методы по паспорту API. `new_instance()` даёт Python-объект. Для передачи экземпляра в Java используй `.java`, если его требует API. DexMaker в Class Proxy создаёт Java-прокси во время работы, Python-реализация методов остаётся Python-кодом.
-- Для путей используй `file_utils` или `elyx`. Входящие Android intents перехватывай через `from intents import IntentsManager`, если нужен именно такой сценарий. Сужай фильтры по action/URI и освобождай собственные регистрации. Для разметки используй `extera_utils.text_formatting.parse_text` и передавай полученные `entities` вместе с очищенным текстом. При ручном построении сущностей проверяй смещения в UTF-16 на emoji.
-- `__requirements__` принимает список PEP 508. PIP-подсистема ставит pure-Python wheels в общее хранилище, поэтому несовместимые ограничения версий влияют на другие плагины. Сверяй список предустановленных библиотек и доступность пакета для Python 3.11.
+- Resolve the exact Java class and overload in the target build before using `hook_utils` or reflection. Check primitive and boxed argument types. `MethodHook` wraps before/after callbacks. `MethodReplacement` replaces the implementation. For early removal call `self.unhook_method(handle)`. If a signature is missing, skip only the feature that relies on it and log the reason.
+- Use the class proxy DSL in `extera_utils.classes` for Java subclasses, including `Base`, `java_subclass` and `joverride`. `new_instance()` returns the Python peer. Pass `.java` to Java where required. DexMaker generates the proxy class, while the Python implementation stays in Python.
+- Resolve files through `file_utils` or `elyx`. Use `IntentsManager` from `intents` for incoming Android intents when needed. Filter by action or URI and remove owned registrations. Use `extera_utils.text_formatting.parse_text` for markup and pass the parsed entities with the plain text. For manually built entities, check UTF-16 offsets around emoji.
+- List PEP 508 requirements in `__requirements__`. The PIP controller installs pure-Python wheels into shared storage. Check already provided packages, Python 3.11 compatibility and version conflicts with other plugins.
 
 [Plugin Class](https://plugins.exteragram.app/docs/plugin-class) · [Multi-account](https://plugins.exteragram.app/docs/multi-account) · [Plugin Settings](https://plugins.exteragram.app/docs/plugin-settings) · [Client Utilities](https://plugins.exteragram.app/docs/client-utils) · [Class Proxy](https://plugins.exteragram.app/docs/class-proxy) · [Xposed](https://plugins.exteragram.app/docs/xposed-hooking)
-

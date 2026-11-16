@@ -1,24 +1,23 @@
 ---
 name: exteragram-plugin-skill
-description: Создавай, изменяй, отлаживай и собирай плагины exteraGram на Python и Java/Kotlin. Используй для BasePlugin, .plugin, Elyx (.elyx/.eaf), SDK и Chaquopy, Java-хуков, релизов без исходных .py через .pyc и сборок DEX с R8.
+description: Create, edit, debug, and package exteraGram plugins. Use for BasePlugin and Chaquopy APIs, single-file .plugin and Elyx projects, Java hooks, Python .pyc releases, and Java/Kotlin DEX builds with R8.
 ---
 
-# Плагины exteraGram
+# exteraGram plugins
 
-1. Определи формат по исходникам и сборке. Обычный `.plugin` — текст Python с метаданными и классом `BasePlugin`. `refmap.*` обозначает структурированный проект Elyx. Для Gradle/DEX найди точку входа, упаковщик и способ загрузки. При изменении сохраняй существующий формат, если задача не требует миграции.
-2. Проверь целевой клиент, фактическую версию SDK и Android. Вводная документация указывает Python 3.11, Chaquopy v16, SDK 1.4.4.3 и exteraGram 12.5.1+. У отдельных функций свои минимумы. Например, API привязки к аккаунту требует SDK 1.4.5.0+, а Elyx Quick Start использует 1.4.5.3+. Сверяй нужные символы и Java-сигнатуры с SDK и классами целевой сборки. Сохраняй ограничения, которые оправданы используемыми API.
-3. Сохрани ID плагина, ключи настроек, идентификаторы меню и контракты зависимостей, на которые опираются существующие установки. Миграцию настроек делай повторяемой и проверяй на данных старой версии. Меняй номер версии при выпуске обновления.
-4. Регистрируй хуки в `on_plugin_load`. В `on_plugin_unload` освобождай созданные плагином ресурсы. Сетевой и файловый ввод-вывод выполняй вне UI-потока. Для действий из событий используй аккаунт события. Выбирай публичный SDK вместо рефлексии, если он покрывает операцию.
-5. Проверь исходники, затем конечный пакет. При наличии целевого устройства проверь чистую установку, обновление, включение, выключение, повторное включение и работу изменённой функции. Для релиза без исходников проверяй именно релизный артефакт. В отчёте укажи файл, целевые версии, выполненные проверки и статус проверки на устройстве.
+1. Identify the format and preserve it unless the task calls for migration. A single-file `.plugin` is Python source with literal metadata and one `BasePlugin` subclass. An Elyx project has a root `refmap.*`. For DEX, find the build, entry point, and loader contract.
+2. Check the target exteraGram build, SDK and Android API level. The SDK introduction lists Python 3.11, Chaquopy v16, SDK 1.4.4.3 and exteraGram 12.5.1+. Account-bound helpers require SDK 1.4.5.0+, and the Elyx Quick Start example uses 1.4.5.3+. Verify symbols and Java signatures against the actual target.
+3. Preserve the plugin ID, settings keys, menu IDs and dependency contracts. Make migrations safe to rerun and test with prior-version data. Bump the version when preparing an update.
+4. Register hooks on load and release plugin-owned resources on unload. Keep I/O off the Android UI thread. Use the account from the triggering event. Prefer public SDK APIs when they cover the operation.
+5. Check the final package. When a target device is available, test clean install, update, enable, disable, re-enable and the changed behavior. Report the artifact, target versions and which checks ran on device.
 
-## Справочники
+## References
 
-- [Python и SDK](references/python-sdk.md) — метаданные, жизненный цикл, интерфейс, аккаунты, Java и минимальный пример.
-- [Elyx](references/elyx.md) — структура, ресурсы, зависимости, изоляция импорта и миграция с однофайлового плагина.
-- [Сборка в .pyc](references/pyc.md) — ElyxBuilder, ручная сборка и проверка состава релиза.
-- [DEX и R8](references/dex.md) — Java/Kotlin, варианты упаковки, контракт точки входа и keep rules.
-- [Отладка и распространение](references/testing-release.md) — DevServer, ADB, матрица проверок и каталог.
-- [Карта документации](references/sources.md) — все разделы сайта и первичные источники инструментов.
+- [Python SDK](references/python-sdk.md) for metadata, lifecycle, UI, accounts and Java interop.
+- [Elyx](references/elyx.md) for project layout, imports, assets, localization and dependencies.
+- [Python bytecode](references/pyc.md) for ElyxBuilder, manual compilation and release checks.
+- [DEX and R8](references/dex.md) for Java/Kotlin release formats, loader contracts and keep rules.
+- [Testing and distribution](references/testing-release.md) for DevServer, ADB, regression tests and the catalog.
+- [Documentation map](references/sources.md) for official documentation and tool sources.
 
-Для запроса «скрыть исходники» уточняй нужный результат по контексту. Если достаточно выпустить Python-код без `.py`, используй Elyx с байткодом. DEX подходит для реализации, уже написанной или явно переносимой на Java/Kotlin. Оба формата поддаются анализу. Секреты и логику, требующую конфиденциальности от владельца устройства, держи на сервере. Сохраняй обычный процесс установки и проверки exteraGram.
-
+Use Elyx bytecode to ship Python logic without `.py` files. Use DEX for JVM logic or an explicitly requested port to Java/Kotlin. Both forms can be analyzed. Keep credentials and logic that must remain confidential from device owners on a server. Preserve the host's normal installation and inspection flow.
